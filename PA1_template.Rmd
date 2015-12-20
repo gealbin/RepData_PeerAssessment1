@@ -1,25 +1,148 @@
 ---
 title: "Reproducible Research: Peer Assessment 1"
-output: 
-  html_document:
-    keep_md: true
+author: "Germán Albín"
+date: "December 19, 2015"
+output: html_document
 ---
 
+## Introduction
+
+It is now possible to collect a large amount of data about personal movement using activity monitoring devices such as a [Fitbit](http://www.fitbit.com/), [Nike Fuelband](http://www.nike.com/us/en_us/c/nikeplus-fuelband), or [Jawbone Up](https://jawbone.com/up). These type of devices are part of the “quantified self” movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. But these data remain under-utilized both because the raw data are hard to obtain and there is a lack of statistical methods and software for processing and interpreting the data.
+
+This assignment makes use of data from a personal activity monitoring device. This device collects data at 5 minute intervals through out the day. The data consists of two months of data from an anonymous individual collected during the months of October and November, 2012 and include the number of steps taken in 5 minute intervals each day.
 
 ## Loading and preprocessing the data
 
+1. Load the data:
+```{r}
+unzip("activity.zip")
+activity <- read.csv("activity.csv")
+```
 
+2. Process/transform the data into a format suitable for your analysis
+```{r}
+activity$date <- as.Date(activity$date)
+```
 
 ## What is mean total number of steps taken per day?
 
+1. Calculate the total number of steps taken per day
+```{r}
+sum_steps <- tapply(activity$steps[complete.cases(activity$steps)],
+                    activity$date[complete.cases(activity$steps)], sum)
+library(reshape2)
+sum_steps <- melt(sum_steps)
+names(sum_steps) <- list("date","sum_steps")
+```
 
+2. Make a histogram of the total number of steps taken each day
+```{r}
+library(ggplot2)
+##Calculate bin width to avoid warning
+breaks <- pretty(range(sum_steps$sum_steps), n = nclass.FD(sum_steps$sum_steps), min.n = 1)
+bwidth <- breaks[2]-breaks[1]
+qplot(sum_steps, data = sum_steps, binwidth=bwidth, 
+      main = "Histogram of the total number of steps taken each day", xlab = "Total steps")
+```
+
+3. Calculate and report the mean and median of the total number of steps taken per day
+```{r}
+mean_steps <- as.integer(mean(sum_steps$sum_steps))
+median_steps <- median(sum_steps$sum_steps)
+```
+
+The mean is: `r mean_steps` and the median is: `r median_steps`
 
 ## What is the average daily activity pattern?
 
+1. Make a time series plot of the 5-minute interval (x-axis) and the average number of steps taken, averaged across all days (y-axis)
+```{r}
+avg_steps_interval <- tapply(activity$steps[complete.cases(activity$steps)],
+                    activity$interval[complete.cases(activity$steps)], mean)
+avg_steps_interval <- melt(avg_steps_interval)
+names(avg_steps_interval) <- list("interval","step_mean")
+qplot(x = interval, y = step_mean, data = avg_steps_interval, 
+      geom="line", main = "Steps averageed by interval", ylab = "Step average")
+```
 
+2. Which 5-minute interval, on average across all the days in the dataset, contains the maximum number of steps?
+```{r}
+max_index <- avg_steps_interval$interval[which.max(avg_steps_interval$step_mean)]
+```
+The interval that contains the maximum number of steps is: `r max_index`
 
 ## Imputing missing values
+Note that there are a number of days/intervals where there are missing values (coded as NA). The presence of missing days may introduce bias into some calculations or summaries of the data.
 
+1. Calculate and report the total number of missing values in the dataset
+```{r}
+sum_NA_values <- sum(complete.cases(activity$steps)==FALSE)
+```
+There are: `r sum_NA_values` missing values in the dataset.
 
+2. Devise a strategy for filling in all of the missing values in the dataset.
+
+The strategy will be to fill the missing values with the steps averaged by interval, taking the interval at which the NA value belongs.
+
+3. Create a new dataset that is equal to the original dataset but with the missing data filled in.
+
+The data set activity_fill has the same structure than the original dataset but NA values where replaced by the average of steps by interval, taking the interval at which the NA value belongs.
+```{r}
+activity_fill <- activity
+for (i in 1:length(activity_fill$steps)) {
+  if (is.na(activity_fill$steps[i])) {
+    activity_fill$steps[i] <-
+      as.integer(avg_steps_interval$step_mean[avg_steps_interval$interval==activity_fill$interval[i]])
+  }
+}
+```
+
+4. Make a histogram of the total number of steps taken each day and Calculate and report the mean and median total number of steps taken per day. Do these values differ from the estimates from the first part of the assignment? What is the impact of imputing missing data on the estimates of the total daily number of steps?
+
+```{r}
+sum_steps_fill <- tapply(activity_fill$steps, activity_fill$date, sum)
+sum_steps_fill <- melt(sum_steps_fill)
+names(sum_steps_fill) <- list("date","sum_steps")
+
+##Calculate bin width to avoid warning
+breaks <- pretty(range(sum_steps_fill$sum_steps), n = nclass.FD(sum_steps_fill$sum_steps), min.n = 1)
+bwidth <- breaks[2]-breaks[1]
+qplot(sum_steps, data = sum_steps_fill, binwidth=bwidth, 
+      main = "Histogram of the total number of steps taken each day, filled dataset", xlab = "Total steps")
+mean_steps <- as.integer(mean(sum_steps_fill$sum_steps))
+median_steps <- median(sum_steps_fill$sum_steps)
+```
+
+The mean is: `r mean_steps` and the median is: `r median_steps`
+
+The values of mean and median does not show a big difference, but the histogram has a greater peak on the average of the distribution. This behavior can be explained because missing values were replaced with averaged values, and it is expected that averaged values on each interval are close to overall average.
 
 ## Are there differences in activity patterns between weekdays and weekends?
+
+1. Create a new factor variable in the dataset with two levels – “weekday” and “weekend” indicating whether a given date is a weekday or weekend day.
+```{r}
+translator_function = function(element) {
+  switch(element,
+         "Monday" = "weekday",
+         "Tuesday" = "weekday",
+         "Wednesday" = "weekday",
+         "Thursday" = "weekday",
+         "Friday" = "weekday",
+         "Saturday" = "weekend",
+         "Sunday" = "weekend")
+}
+weekday <- sapply(weekdays(activity_fill$date), translator_function)
+activity_fill_weekday <- cbind(activity_fill, weekday)
+```
+
+2. Make a panel plot containing a time series plot of the 5-minute interval (x-axis) and the average number of steps taken, averaged across all weekday days or weekend days (y-axis).
+```{r}
+avg_steps_interval <- tapply(activity_fill_weekday$steps, 
+                             list(activity_fill_weekday$interval, activity_fill_weekday$weekday),
+                             mean)
+avg_steps_interval <- melt(avg_steps_interval)
+names(avg_steps_interval) <- list("interval","weekday","step_mean")
+qplot(x = interval, y = step_mean, data = avg_steps_interval, facets = weekday~.,
+      geom="line", main = "Steps averageed by interval", ylab = "Step average")
+```
+
